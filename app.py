@@ -505,7 +505,7 @@ async def send_current_question_to_message(message_target, context: ContextTypes
         ),
         reply_markup=answer_inline_keyboard(q["o"]), 
 
-    async def edit_current_question(query, context: ContextTypes.DEFAULT_TYPE):
+async def edit_current_question(query, context: ContextTypes.DEFAULT_TYPE):
     questions = context.user_data.get("questions", [])
     index = context.user_data.get("index", 0)
     score = context.user_data.get("score", 0)
