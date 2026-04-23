@@ -32,6 +32,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# simple in-memory leaderboard
+LEADERBOARD = {}
+
 
 # ---------------- HEALTH SERVER ----------------
 class HealthHandler(BaseHTTPRequestHandler):
@@ -95,7 +98,7 @@ def generate_english_questions() -> list[dict]:
     ]
     for i in range(20):
         s = spellings[i % len(spellings)]
-        questions.append(make_question("Choose the correct spelling.", s[1], s[2])) 
+        questions.append(make_question("Choose the correct spelling.", s[1], s[2]))
 
     grammar = [
         ("What is the past tense of 'go'?", ["Goed", "Went", "Gone", "Going"], 1),
@@ -171,7 +174,7 @@ def generate_gk_questions() -> list[dict]:
         ("Which country is famous for pizza?", ["France", "Italy", "Spain", "Germany"], 1),
     ]
     questions = []
-    for i in range(5):
+    for _ in range(5):
         for q in base:
             questions.append(make_question(q[0], q[1], q[2]))
     return questions[:100]
@@ -201,7 +204,7 @@ def generate_science_questions() -> list[dict]:
         ("Which animal changes from caterpillar to butterfly?", ["Ant", "Bee", "Butterfly", "Spider"], 2),
     ]
     questions = []
-    for i in range(5):
+    for _ in range(5):
         for q in base:
             questions.append(make_question(q[0], q[1], q[2]))
     return questions[:100] 
@@ -230,7 +233,7 @@ def generate_math_questions() -> list[dict]:
         ("What is 81 - 19?", ["60", "61", "62", "63"], 2),
     ]
     questions = []
-    for i in range(5):
+    for _ in range(5):
         for q in base:
             questions.append(make_question(q[0], q[1], q[2]))
     return questions[:100]
@@ -260,7 +263,7 @@ def generate_physics_questions() -> list[dict]:
         ("Which law explains action and reaction?", ["Newton's First Law", "Newton's Second Law", "Newton's Third Law", "Ohm's Law"], 2),
     ]
     questions = []
-    for i in range(5):
+    for _ in range(5):
         for q in base:
             questions.append(make_question(q[0], q[1], q[2]))
     return questions[:100]
@@ -290,7 +293,7 @@ def generate_chemistry_questions() -> list[dict]:
         ("What is the formula of methane?", ["CH4", "CO2", "H2O", "NH3"], 0),
     ]
     questions = []
-    for i in range(5):
+    for _ in range(5):
         for q in base:
             questions.append(make_question(q[0], q[1], q[2]))
     return questions[:100]
@@ -305,6 +308,17 @@ QUESTION_BANK = {
     "chemistry": generate_chemistry_questions(),
 }
 
+GAME_MODE_QUESTION_BANK = {
+    "random": (
+        generate_english_questions()[:15]
+        + generate_gk_questions()[:15]
+        + generate_science_questions()[:15]
+        + generate_math_questions()[:15]
+        + generate_physics_questions()[:15]
+        + generate_chemistry_questions()[:15]
+    )
+}
+
 SUBJECT_LABELS = {
     "english": "📘 English",
     "gk": "🌍 GK",
@@ -312,6 +326,7 @@ SUBJECT_LABELS = {
     "math": "➗ Math",
     "physics": "⚛️ Physics",
     "chemistry": "⚗️ Chemistry",
+    "random": "🎮 Random Game",
 }
 
 SUBJECT_TEXT_TO_KEY = {
@@ -323,6 +338,36 @@ SUBJECT_TEXT_TO_KEY = {
     "⚗️ Chemistry": "chemistry",
 }
 
+# ---------------- GAME SYSTEM ----------------
+def init_game_profile(context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.setdefault("coins", 0)
+    context.user_data.setdefault("xp", 0)
+    context.user_data.setdefault("streak", 0)
+    context.user_data.setdefault("mode", "study")
+
+
+def get_rank(xp: int) -> str:
+    if xp < 100:
+        return "Beginner"
+    elif xp < 300:
+        return "Explorer"
+    elif xp < 700:
+        return "Scholar"
+    elif xp < 1500:
+        return "Expert"
+    elif xp < 3000:
+        return "Master"
+    else:
+        return "Legend" 
+
+def update_leaderboard(user, context: ContextTypes.DEFAULT_TYPE):
+    init_game_profile(context)
+    LEADERBOARD[user.id] = {
+        "name": user.first_name or "User",
+        "xp": context.user_data.get("xp", 0),
+        "coins": context.user_data.get("coins", 0),
+    }
+
 
 # ---------------- KEYBOARDS ----------------
 def subject_reply_keyboard():
@@ -330,6 +375,8 @@ def subject_reply_keyboard():
         ["📘 English", "🌍 GK"],
         ["🧪 Science", "➗ Math"],
         ["⚛️ Physics", "⚗️ Chemistry"],
+        ["🎮 Game Mode", "🏆 Leaderboard"],
+        ["🪙 My Coins", "🥇 My Rank"],
         ["🔄 Restart", "❌ Hide Keyboard"],
     ]
     return ReplyKeyboardMarkup(
@@ -337,7 +384,21 @@ def subject_reply_keyboard():
         resize_keyboard=True,
         one_time_keyboard=False,
         input_field_placeholder="Choose a subject...",
-                            ) 
+    )
+
+
+def game_mode_keyboard():
+    keyboard = [
+        ["⚡ Random Quiz", "🔥 Daily Challenge"],
+        ["🎯 Quick Play", "⬅️ Back to Study"],
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Choose a game mode...",
+    )
+
 
 def answer_inline_keyboard(options):
     return InlineKeyboardMarkup([
@@ -365,13 +426,16 @@ def result_inline_keyboard():
 
 # ---------------- SESSION ----------------
 def reset_session(context: ContextTypes.DEFAULT_TYPE):
+    init_game_profile(context)
     context.user_data["subject"] = None
     context.user_data["questions"] = []
     context.user_data["index"] = 0
     context.user_data["score"] = 0
+    context.user_data["mode"] = "study"
 
 
 def start_subject_quiz(context: ContextTypes.DEFAULT_TYPE, subject: str):
+    init_game_profile(context)
     questions = QUESTION_BANK.get(subject, [])[:]
     random.shuffle(questions)
 
@@ -379,6 +443,21 @@ def start_subject_quiz(context: ContextTypes.DEFAULT_TYPE, subject: str):
     context.user_data["questions"] = questions
     context.user_data["index"] = 0
     context.user_data["score"] = 0
+    context.user_data["mode"] = "study"
+
+
+def start_game_mode_quiz(context: ContextTypes.DEFAULT_TYPE, game_type: str):
+    init_game_profile(context)
+    questions = GAME_MODE_QUESTION_BANK.get("random", [])[:]
+    random.shuffle(questions)
+    questions = questions[:20]
+
+    context.user_data["subject"] = "random"
+    context.user_data["questions"] = questions
+    context.user_data["index"] = 0
+    context.user_data["score"] = 0
+    context.user_data["mode"] = "game"
+    context.user_data["game_type"] = game_type
 
 
 async def send_current_question_to_message(message_target, context: ContextTypes.DEFAULT_TYPE):
@@ -386,6 +465,7 @@ async def send_current_question_to_message(message_target, context: ContextTypes
     index = context.user_data.get("index", 0)
     score = context.user_data.get("score", 0)
     subject = context.user_data.get("subject")
+    mode = context.user_data.get("mode", "study")
 
     if not questions:
         await message_target.reply_text(
@@ -395,20 +475,72 @@ async def send_current_question_to_message(message_target, context: ContextTypes
         return
 
     if index >= len(questions):
+        init_game_profile(context)
+        xp = context.user_data.get("xp", 0)
+        coins = context.user_data.get("coins", 0)
+        rank = get_rank(xp)
+
+        title = "🎉 Quiz Finished!" if mode == "study" else "🎮 Game Finished!"
         await message_target.reply_text(
             (
-                "🎉 Quiz Finished!\n\n"
+                f"{title}\n\n"
                 f"📘 Subject: {SUBJECT_LABELS.get(subject, subject)}\n"
-                f"✅ Score: {score}/{len(questions)}"
+                f"✅ Score: {score}/{len(questions)}\n"
+                f"🪙 Coins: {coins}\n"
+                f"⭐ XP: {xp}\n"
+                f"🥇 Rank: {rank}"
             ),
             reply_markup=result_inline_keyboard(),
         )
         return
 
     q = questions[index]
+    prefix = "🎮 Game Mode\n" if mode == "game" else ""
     await message_target.reply_text(
         text=(
-            f"{SUBJECT_LABELS.get(subject, subject)}\n"
+            f"{prefix}{SUBJECT_LABELS.get(subject, subject)}\n"
+            f"❓ Question {index + 1}/{len(questions)}\n"
+            f"🏆 Score: {score}\n\n"
+            f"{q['q']}"
+        ),
+        reply_markup=answer_inline_keyboard(q["o"]), 
+
+    async def edit_current_question(query, context: ContextTypes.DEFAULT_TYPE):
+    questions = context.user_data.get("questions", [])
+    index = context.user_data.get("index", 0)
+    score = context.user_data.get("score", 0)
+    subject = context.user_data.get("subject")
+    mode = context.user_data.get("mode", "study")
+
+    if not questions:
+        await query.edit_message_text("❌ Questions မရှိသေးပါ။")
+        return
+
+    if index >= len(questions):
+        init_game_profile(context)
+        xp = context.user_data.get("xp", 0)
+        coins = context.user_data.get("coins", 0)
+        rank = get_rank(xp)
+
+        title = "🎉 Quiz Finished!" if mode == "study" else "🎮 Game Finished!"
+        await query.edit_message_text(
+            (
+                f"{title}\n\n"
+                f"📘 Subject: {SUBJECT_LABELS.get(subject, subject)}\n"
+                f"✅ Score: {score}/{len(questions)}\n"
+                f"🪙 Coins: {coins}\n"
+                f"⭐ XP: {xp}\n"
+                f"🥇 Rank: {rank}"
+            ),
+            reply_markup=result_inline_keyboard(),
+        )
+        return
+
+    q = questions[index]
+    prefix = "🎮 Game Mode\n" if mode == "game" else ""
+    await query.edit_message_text(
+        text=(
+            f"{prefix}{SUBJECT_LABELS.get(subject, subject)}\n"
             f"❓ Question {index + 1}/{len(questions)}\n"
             f"🏆 Score: {score}\n\n"
             f"{q['q']}"
@@ -417,36 +549,55 @@ async def send_current_question_to_message(message_target, context: ContextTypes
     )
 
 
-async def edit_current_question(query, context: ContextTypes.DEFAULT_TYPE):
-    questions = context.user_data.get("questions", [])
-    index = context.user_data.get("index", 0)
-    score = context.user_data.get("score", 0)
-    subject = context.user_data.get("subject")
+# ---------------- PROFILE / GAME UTILS ----------------
+async def send_my_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    init_game_profile(context)
+    await update.message.reply_text(
+        f"🪙 Your Coins: {context.user_data.get('coins', 0)}",
+        reply_markup=subject_reply_keyboard(),
+    )
 
-    if not questions:
-        await query.edit_message_text("❌ Questions မရှိသေးပါ။")
-        return
 
-    if index >= len(questions):
-        await query.edit_message_text(
-            (
-                "🎉 Quiz Finished!\n\n"
-                f"📘 Subject: {SUBJECT_LABELS.get(subject, subject)}\n"
-                f"✅ Score: {score}/{len(questions)}"
-            ),
-            reply_markup=result_inline_keyboard(),
+async def send_my_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    init_game_profile(context)
+    xp = context.user_data.get("xp", 0)
+    rank = get_rank(xp)
+    streak = context.user_data.get("streak", 0)
+
+    await update.message.reply_text(
+        (
+            f"🥇 Your Rank: {rank}\n"
+            f"⭐ XP: {xp}\n"
+            f"🔥 Streak: {streak}"
+        ),
+        reply_markup=subject_reply_keyboard(),
+    )
+
+
+async def send_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not LEADERBOARD:
+        await update.message.reply_text(
+            "🏆 Leaderboard is empty.",
+            reply_markup=subject_reply_keyboard(),
         )
         return
 
-    q = questions[index]
-    await query.edit_message_text(
-        text=(
-            f"{SUBJECT_LABELS.get(subject, subject)}\n"
-            f"❓ Question {index + 1}/{len(questions)}\n"
-            f"🏆 Score: {score}\n\n"
-            f"{q['q']}"
-        ),
-        reply_markup=answer_inline_keyboard(q["o"]),
+    top_players = sorted(
+        LEADERBOARD.items(),
+        key=lambda item: item[1]["xp"],
+        reverse=True,
+    )[:10]
+
+    lines = ["🏆 Leaderboard\n"]
+    for i, (_, data) in enumerate(top_players, start=1):
+        rank = get_rank(data["xp"])
+        lines.append(
+            f"{i}. {data['name']} — XP {data['xp']} — 🪙 {data['coins']} — {rank}"
+        )
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        reply_markup=subject_reply_keyboard(),
     )
 
 
@@ -462,6 +613,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "➗ Math\n"
         "⚛️ Physics\n"
         "⚗️ Chemistry\n\n"
+        "🎮 New Features:\n"
+        "• Game Mode\n"
+        "• Leaderboard\n"
+        "• Coins\n"
+        "• Rank\n\n"
         "အောက်က subject ကိုရွေးပါ။"
     )
     await update.message.reply_text(
@@ -474,6 +630,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
+    init_game_profile(context)
     text = update.message.text.strip()
 
     if text == "🔄 Restart":
@@ -491,10 +648,51 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if text == "🎮 Game Mode":
+        await update.message.reply_text(
+            "🎮 Game Mode ကိုရွေးပါ။",
+            reply_markup=game_mode_keyboard(),
+        )
+        return
+
+    if text == "⬅️ Back to Study":
+        await update.message.reply_text(
+            "📚 Study Mode ကိုပြန်ရောက်ပါပြီ။",
+            reply_markup=subject_reply_keyboard(),
+        )
+        return
+
+    if text == "⚡ Random Quiz":
+        start_game_mode_quiz(context, "random")
+        await send_current_question_to_message(update.message, context)
+        return
+
+    if text == "🔥 Daily Challenge":
+        start_game_mode_quiz(context, "daily")
+        await send_current_question_to_message(update.message, context)
+        return
+
+    if text == "🎯 Quick Play":
+        start_game_mode_quiz(context, "quick")
+        await send_current_question_to_message(update.message, context)
+        return
+
+    if text == "🏆 Leaderboard":
+        await send_leaderboard(update, context)
+        return
+
+    if text == "🪙 My Coins":
+        await send_my_coins(update, context)
+        return
+
+    if text == "🥇 My Rank":
+        await send_my_rank(update, context)
+        return
+
     subject = SUBJECT_TEXT_TO_KEY.get(text)
     if not subject:
         await update.message.reply_text(
-            "အောက်က subject buttons တွေထဲက တစ်ခုရွေးပါ။",
+            "အောက်က buttons တွေထဲက တစ်ခုရွေးပါ။",
             reply_markup=subject_reply_keyboard(),
         )
         return
@@ -509,6 +707,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data or ""
 
     if data.startswith("answer:"):
+        init_game_profile(context)
         selected = int(data.split(":", 1)[1])
         index = context.user_data.get("index", 0)
         questions = context.user_data.get("questions", [])
@@ -522,11 +721,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if selected == correct:
             context.user_data["score"] = context.user_data.get("score", 0) + 1
-            text = "✅ Correct!"
+            context.user_data["coins"] = context.user_data.get("coins", 0) + 5
+            context.user_data["xp"] = context.user_data.get("xp", 0) + 10
+            context.user_data["streak"] = context.user_data.get("streak", 0) + 1
+
+            if context.user_data["streak"] % 5 == 0:
+                context.user_data["coins"] += 10
+                context.user_data["xp"] += 20
+                bonus = "\n🔥 Streak Bonus: +10 Coins, +20 XP"
+            else:
+                bonus = ""
+
+            text = f"✅ Correct!\n🪙 +5 Coins\n⭐ +10 XP{bonus}"
         else:
+            context.user_data["streak"] = 0
             text = f"❌ Wrong!\nCorrect answer: {current['o'][correct]}"
 
         context.user_data["index"] = index + 1
+        update_leaderboard(update.effective_user, context)
 
         await query.edit_message_text(
             text=text,
@@ -540,11 +752,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "restart_quiz":
         subject = context.user_data.get("subject")
+        mode = context.user_data.get("mode", "study")
+
         if not subject:
             await query.edit_message_text("❌ Subject မတွေ့ပါ။ /start နဲ့ပြန်စပါ။")
             return
 
-        start_subject_quiz(context, subject)
+        if mode == "game":
+            start_game_mode_quiz(context, context.user_data.get("game_type", "random"))
+        else:
+            start_subject_quiz(context, subject)
+
         await edit_current_question(query, context)
         return
 
@@ -558,8 +776,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.delete_message()
         except Exception:
             pass
-        return
-
+        return 
 
 def main():
     threading.Thread(target=run_health_server, daemon=True).start()
