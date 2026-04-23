@@ -97,7 +97,7 @@ def generate_english_questions() -> list[dict]:
         s = spellings[i % len(spellings)]
         questions.append(make_question("Choose the correct spelling.", s[1], s[2])) 
 
-grammar = [
+     grammar = [
         ("What is the past tense of 'go'?", ["Goed", "Went", "Gone", "Going"], 1),
         ("What is the plural of 'child'?", ["Childs", "Children", "Childes", "Child"], 1),
         ("Which one is a verb?", ["Blue", "Quickly", "Run", "Beauty"], 2),
