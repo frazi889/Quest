@@ -1,0 +1,90 @@
+import json
+import random
+
+subjects = ["english", "gk", "science", "math", "physics", "chemistry"]
+levels = ["easy", "medium", "hard"]
+
+templates = {
+    "english": [
+        ("Choose the correct synonym of '{}'.", ["happy", "big", "small", "fast", "smart"]),
+        ("Choose the correct antonym of '{}'.", ["hot", "good", "early", "strong", "clean"]),
+    ],
+    "gk": [
+        ("Which country is known for '{}'?", ["pyramids", "Eiffel Tower", "Great Wall", "Mount Fuji", "Colosseum"]),
+        ("Which continent has '{}'?", ["Sahara", "Amazon", "Alps", "Nile", "Kalahari"]),
+    ],
+    "science": [
+        ("Which is a scientific term related to '{}'?", ["atom", "cell", "energy", "gravity", "oxygen"]),
+        ("Which branch studies '{}'?", ["plants", "animals", "space", "earth", "chemicals"]),
+    ],
+    "math": [
+        ("What is the result related to '{}'?", ["addition", "subtraction", "division", "multiplication", "fraction"]),
+        ("Which math concept matches '{}'?", ["triangle", "circle", "square", "angle", "equation"]),
+    ],
+    "physics": [
+        ("Which physics topic includes '{}'?", ["force", "motion", "energy", "light", "electricity"]),
+        ("What is associated with '{}' in physics?", ["mass", "velocity", "acceleration", "current", "wave"]),
+    ],
+    "chemistry": [
+        ("Which chemistry term is related to '{}'?", ["acid", "base", "atom", "molecule", "reaction"]),
+        ("Which chemistry topic includes '{}'?", ["element", "compound", "mixture", "solution", "gas"]),
+    ],
+}
+
+def make_options(correct: str):
+    pool = [
+        "Option A", "Option B", "Option C", "Option D", "Option E",
+        "Option F", "Option G", "Option H", "Option I", "Option J"
+    ]
+    random.shuffle(pool)
+    options = pool[:3] + [correct]
+    random.shuffle(options)
+    answer = options.index(correct)
+    return options, answer
+
+data = {}
+
+target_total = 1000
+per_bucket = target_total // (len(subjects) * len(levels))  # around 55
+
+for subject in subjects:
+    data[subject] = {}
+    for level in levels:
+        data[subject][level] = []
+
+        for i in range(per_bucket):
+            tmpl, word_list = random.choice(templates[subject])
+            keyword = random.choice(word_list)
+            question = tmpl.format(keyword)
+
+            correct = f"Correct {keyword.title()} {i+1}"
+            options, answer = make_options(correct)
+
+            data[subject][level].append({
+                "question": question,
+                "options": options,
+                "answer": answer
+            })
+
+# fill until 1000 exactly
+count = sum(len(data[s][l]) for s in subjects for l in levels)
+while count < 1000:
+    subject = random.choice(subjects)
+    level = random.choice(levels)
+    tmpl, word_list = random.choice(templates[subject])
+    keyword = random.choice(word_list)
+    question = tmpl.format(keyword)
+    correct = f"Correct {keyword.title()} Extra {count+1}"
+    options, answer = make_options(correct)
+
+    data[subject][level].append({
+        "question": question,
+        "options": options,
+        "answer": answer
+    })
+    count += 1
+
+with open("questions.json", "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+
+print("questions.json generated with 1000 questions.")
